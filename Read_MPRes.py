@@ -1,4 +1,4 @@
-from Q_Velest import ReadMainVelest
+from Q_Velest import ReadVelestMain
 import os
 import statistics as st
 
@@ -20,7 +20,7 @@ sorted_mod = sorted(zp, key=lambda x: x[1])
 
 for mod, md_nm in sorted_mod:
 
-    itt_data, init_data, final_data, ids = ReadMainVelest(mod)
+    itt_data, init_data, final_data, optm_data, next_set, ids = ReadVelestMain(mod)
 
     datvar = ''
     msqrd = ''
