@@ -10,22 +10,22 @@ Ambon Area (Northern Part of Banda Arc)
 ***  olat       olon   icoordsystem      zshift   itrial ztrial    ised
   -3.500     -128.750       0            0.000      0     0.00       0
 ***
-*** neqs   nshot   rotate
-     369      0      0.0
+*** neqs   nshot   rotate ============= auto ===============
+     434      0      0.0
 ***
 *** isingle   iresolcalc
        0          0
 ***
 *** dmax    itopo    zmin     veladj    zadj   lowveloclay
-    500.0     0      0.5       0.20     5.00       0
+    500.0     0      0.5       0.20     1.00       0
 ***
 *** nsp    swtfac   vpvs       nmod
      1      0.00    0.000        1
 ***
-***   othet   xythet    zthet    vthet   stathet
-      0.01     0.01     0.01      0.1     0.01
+***   othet   xythet    zthet    vthet   stathet  ============= auto ===============
+      0.01     0.01      0.01     0.1     0.01
 ***
-*** nsinv   nshcor   nshfix     iuseelev    iusestacorr
+*** nsinv   nshcor   nshfix     iuseelev    iusestacorr ============= auto ===============
        1       0       0           0            1
 ***
 *** iturbo    icnvout   istaout   ismpout
@@ -34,13 +34,13 @@ Ambon Area (Northern Part of Banda Arc)
 *** irayout   idrvout   ialeout   idspout   irflout   irfrout   iresout
        0         0         0         0         0         0         0
 ***
-*** delmin   ittmax   invertratio
+*** delmin   ittmax   invertratio ============= auto ===============
     0.010      5          1
 ***
-*** Modelfile:
+*** Modelfile: ============= auto ===============
 
 ***
-*** Stationfile:
+*** Stationfile: ============= auto ===============
 
 ***
 *** Seismofile:
@@ -60,7 +60,7 @@ input/regionskoord.dat
 ***
 *** DATA INPUT files:
 ***
-*** File with Earthquake data:
+*** File with Earthquake data: ============= auto ===============
 
 ***
 *** File with Shot data:
@@ -68,16 +68,16 @@ input/regionskoord.dat
 ***
 *** OUTPUT files:
 ***
-*** Main print output file:
+*** Main print output file: ============= auto ===============
 
 ***
 *** File with single event locations:
 
 ***
-*** File with final hypocenters in *.cnv format:
+*** File with final hypocenters in *.cnv format: ============= auto ===============
 
 ***
-*** File with new station corrections:
+*** File with new station corrections: ============= auto ===============
 
 ***
 *** File with summary cards (e.g. for plotting):

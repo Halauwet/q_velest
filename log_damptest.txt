@@ -1,0 +1,9 @@
+
+Test Velocity Model Damping Factor With Model Sahara_2020
+
+>> Use damping value = "1.0"
+ finished 09-Aug-2020 17:59:02
+_____________________________________
+>> Use damping value = "500.0"
+ finished 09-Aug-2020 17:59:24
+_____________________________________
