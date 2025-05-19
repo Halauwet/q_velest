@@ -1,12 +1,16 @@
 import os
 import sys
 import time
-import statistics
 import shutil
+import platform
+import subprocess
+import hashlib
+import statistics
 import numpy as np
 import subprocess as sp
 from velest_rw import ids, ReadMod, ReadCNV, ReadSta, ReadVelestMain, ReadVelestOptmVel, \
     ReadVelestVar, ReadVelestVel, CNV_EvtCount
+from cryptography.fernet import Fernet
 from datetime import datetime as dt
 from gmt_layout import color_cycle
 from matplotlib import pyplot as plt
@@ -35,6 +39,55 @@ Logs:
 2020-Jul: RunVelestSet() added recursive routine to adjust input velocity layer if velest is hang (solution not stable)
 
 """
+
+
+FERNET_KEY = b'vH_oNg_JBd66-4Fz51rTxotxpbC-3Hhe50mg_geEAMI='  # <<< replace this securely
+HMAC_SECRET = b'Qsecret_for_digital_signature'  # Must match in validation
+
+fernet = Fernet(FERNET_KEY)
+
+def get_machine_uuid():
+    system = platform.system()
+    try:
+        if system == "Windows":
+            output = subprocess.check_output("wmic csproduct get uuid", shell=True)
+            uuid = output.decode().splitlines()[2].strip()
+            return uuid
+
+        elif system == "Linux":
+            # Read UUID from DMI path
+            try:
+                result = subprocess.run(
+                    ['sudo', 'cat', '/sys/class/dmi/id/product_uuid'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                return result.stdout.strip()
+            except subprocess.CalledProcessError as e:
+                return f"Command failed: {e}"
+
+        elif system == "Darwin":
+            # macOS: Read IOPlatformUUID
+            output = subprocess.check_output(
+                "ioreg -rd1 -c IOPlatformExpertDevice", shell=True
+            ).decode()
+            for line in output.splitlines():
+                if "IOPlatformUUID" in line:
+                    return line.split('=')[-1].strip().strip('"')
+        else:
+            return None
+    except Exception as e:
+        print(f"Error retrieving UUID: {e}")
+        return None
+
+
+def is_license_valid(machine_uuid):
+    authorized_hash = ["5d25467892a1cfab0cdaf7f9e149efa4f479d9c60af46733311e3267a9cf947e",
+                       "be11461055a5482143235980e03877fd4ceaa3e60af327dcf0b6e5b2ef9406f8"]
+    hashed_uuid = hashlib.sha256(machine_uuid.encode()).hexdigest()
+
+    return hashed_uuid in authorized_hash
 
 
 def plot_model(vel_type='P'):
@@ -1284,6 +1337,14 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
     :param damp_test: run damping test velocity model before running velest
     :param auto_damp: automatic select damping value based on minimum data variance or manually choose after test
     """
+
+    uuid = get_machine_uuid()
+    if uuid:
+        if not is_license_valid(uuid):
+            sys.exit("❌ The program cannot run on unauthorized machines.")
+    else:
+        sys.exit("⚠️ Could not retrieve machine information. Please contact the developer.")
+
     my_dir = os.getcwd()
     mod_dir = os.path.join('input', 'mod')
     pha_dir = os.path.join('input', 'pha')
@@ -1846,3 +1907,5 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
     print(log)
     logfile.write(log)
     logfile.close()
+
+Run_Velest(itrmax=10, itr_set=True)
