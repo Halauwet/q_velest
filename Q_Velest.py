@@ -10,6 +10,7 @@ import numpy as np
 import subprocess as sp
 from velest_rw import ids, ReadMod, ReadCNV, ReadSta, ReadVelestMain, ReadVelestOptmVel, \
     ReadVelestVar, ReadVelestVel, CNV_EvtCount
+from os.path import join
 from cryptography.fernet import Fernet
 from datetime import datetime as dt
 from gmt_layout import color_cycle
@@ -88,6 +89,16 @@ def is_license_valid(machine_uuid):
     hashed_uuid = hashlib.sha256(machine_uuid.encode()).hexdigest()
 
     return hashed_uuid in authorized_hash
+
+
+def curvature(x, y):
+    dx = np.gradient(x)
+    dy = np.gradient(y)
+    d2x = np.gradient(dx)
+    d2y = np.gradient(dy)
+    num = dx * d2y - dy * d2x
+    denom = (dx ** 2 + dy ** 2) ** 1.5
+    return np.abs(num / denom)
 
 
 def plot_model(vel_type='P'):
@@ -841,20 +852,23 @@ def velest2gmt(model_nm, init_pha, final_pha, main_out, itrmax, invratio, plot=F
     return velestdata, init_data, final_data
 
 
-def damping_test(model=None, phase=None, stacor=None, which_dmp=None,
-                 min_damp=1, max_damp=900, num_damp=10, plot=False):
+def damping_test(itt_num=None, model=None, phase=None, stacor=None, which_dmp=None, min_damp=0.1, max_damp=900, num_damp=10,
+                 time_out=120, plot=False, print_velestout=False):
     """
+    :param itt_num: number of iteration set
     :param model: input model file
-    :param phase: input phase file
-    :param stacor: input phase file
     :type model: full path
+    :param phase: input phase file
     :type phase: full path
+    :param stacor: input phase file
     :type stacor: full path
     :param which_dmp: damping parameter to test (ot, xy, z, vel, sta)
     :param min_damp: minimum damp value to test
     :param max_damp: maximum damp value to test
     :param num_damp: number damp value to test
+    :param time_out: time length to terminate velest run (instable solution)
     :param plot: plot damping test graph or not
+    :param print_velestout: print the output of Velest process
     """
 
     if model is None:
@@ -915,15 +929,10 @@ def damping_test(model=None, phase=None, stacor=None, which_dmp=None,
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    cons = max_damp ** (1 / (num_damp - 1))
-    lst_dmp = cons ** np.arange(1, num_damp)
-
-    if cons > min_damp:
-        lst_dmp = np.insert(lst_dmp, 0, 1)
-
-    lst_dmp = lst_dmp.round(decimals=1)
-
-    # lst_dmp = np.linspace(min_damp, max_damp, int(num_damp), dtype=int)
+    # Generate log-spaced values from min_damp to max_damp
+    lst_dmp = np.logspace(np.log10(min_damp), np.log10(max_damp), num=num_damp)
+    lst_dmp = np.round(lst_dmp, decimals=2)
+    lst_dmp[-1] = max_damp
 
     damp = [999, 999, 999, 999, 999]
 
@@ -951,7 +960,7 @@ def damping_test(model=None, phase=None, stacor=None, which_dmp=None,
 
     eqs_num = CNV_EvtCount(set_phafl)
 
-    log = f'\nTest {damp_type} Damping Factor With Model {mod_nm}\n\n'
+    log = f'\n    Test {damp_type} Damping Factor With Model "{mod_nm}":'
     print(log)
     logfile.write(log)
 
@@ -963,7 +972,7 @@ def damping_test(model=None, phase=None, stacor=None, which_dmp=None,
 
         damp[which_dmp - 1] = dmp
 
-        log = f'>> Use damping value = "{dmp}"'
+        log = f'\n    - Use damping value = "{dmp}"'
         print(log)
         logfile.write(log)
 
@@ -1065,36 +1074,42 @@ def damping_test(model=None, phase=None, stacor=None, which_dmp=None,
 
         cmnout.close()
 
-        proc = sp.Popen('velest', stdout=sp.PIPE)
+        proc = sp.Popen('/home/eq/q_repo/q_velest/velest', stdout=sp.PIPE)
 
         try:
 
-            output = proc.communicate(timeout=200)[0]
+            output = proc.communicate(timeout=time_out)[0]
 
-            if 'error' in str(output):
-                log = ('\n error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                       '\n\n >> next damping value\n_____________________________________\n')
+            if print_velestout:
+                log = output.decode('unicode_escape')
                 print(log)
                 logfile.write(log)
-                break
 
-            log = ('\n finished ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                   '\n_____________________________________\n')
-            print(log)
-            logfile.write(log)
+            if 'error' in str(output):
+                log = ('\n      Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                       '\n      Next damping value\n__________________________________________')
+                print(log)
+                logfile.write(log)
+                continue
 
             x, y = ReadVelestVar(set_outmn)
             s = str(dmp)
+
+            log = (f'\n      Model variance = {x:.3f} (km/s)^2\n      Data variance = {y:.3f} (s)^2\n'
+                   f'\n      Finished {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
+                   f'\n__________________________________________')
+            print(log)
+            logfile.write(log)
 
         except sp.TimeoutExpired:
 
             proc.terminate()
 
-            log = ('\n process timeout ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                   '\n\n >> next damping value\n_____________________________________\n')
+            log = ('\n      Process timeout ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                   '\n      Next damping value\n__________________________________________')
             print(log)
             logfile.write(log)
-            break
+            continue
 
         model_var.append(x)
         data_var.append(y)
@@ -1111,17 +1126,36 @@ def damping_test(model=None, phase=None, stacor=None, which_dmp=None,
         plt.plot(model_var, data_var)
         for x, y, s in zip(model_var, data_var, str_damp):
             plt.text(x, y, s)
-        plt.title(f'Damping Test {damp_type} {mod_nm}')
+        if itt_num:
+            plt.title(f'Damping Test {damp_type} {mod_nm}: Iteration set {itt_num}')
+        else:
+            plt.title(f'Damping Test {damp_type} {mod_nm}')
         plt.xlabel('Model variance (km/s)^2')
         plt.ylabel('Data variance (s)^2')
         plt.draw()
         plt.pause(0.001)
+        if itt_num:
+            plt.savefig(join(out_dir, f'{mod_nm}_Damping_Test_Iset_{itt_num}.png'))
+        else:
+            plt.savefig(join(out_dir, f'{mod_nm}_Damping_Test.png'))
+        plt.close()
 
     return model_var, data_var, str_damp
 
 
-def damp2gmt(mod, dat, str_damp, which_damp, mod_nm):
-            
+def calc_elbow_Lcurve(model_variances, data_variances, damp_values):
+    """Calculate curvature and find index of maximum"""
+    curv = curvature(model_variances, data_variances)
+    elbow_index = np.argmax(curv)
+
+    opt_damp_val = damp_values[elbow_index]
+    opt_model_pt = model_variances[elbow_index]
+    opt_data_pt = data_variances[elbow_index]
+    return opt_damp_val, opt_model_pt, opt_data_pt
+
+
+def damp2gmt(mod, dat, str_damp, which_damp, mod_nm, opt_model=None, opt_data=None):
+
     out_dir = os.path.join('output', 'damping_test')
     plot_result = 'plot_result'
 
@@ -1181,6 +1215,8 @@ def damp2gmt(mod, dat, str_damp, which_damp, mod_nm):
               f'(km/s)@+2@+" -Bya+l"Data variance (s)@+2@+" -K --FONT_TITLE=14 --FONT_LABEL=13 > %ps%\n')
     bat.write(f'gawk "{{print $1, $2}}" %data% | psxy -J -R -W1,blue -O -K >> %ps%\n')
     bat.write(f'gawk "{{print $1, $2, $3}}" %data% | pstext -J -R -F+f12p,Helvetica,black+jLM -O -K >> %ps%\n')
+    if opt_model and opt_data:
+        bat.write(f'echo {opt_model} {opt_data} | psxy -J -R -W1.5,red -O -K >> %ps%\n')
     for varmd, vardt, varsr in zip(mod, dat, str_damp):
         if vardt == min(dat):
             bat.write(f'echo {varmd} {vardt} {varsr} | pstext -J -R -F+f12p,Helvetica,black+jLM '
@@ -1324,7 +1360,8 @@ def simple_model(vel, dep, damp=None):
         return simple_vel, simple_dep, simple_dam
 
 
-def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=False, damp_test=False, auto_damp=False):
+def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=False, damp_test=False, auto_damp=False,
+               print_velestout=False):
     """
     output gmt plot file in batch. Only works on gmt for windows
     :param itrmax: maksimum iteration
@@ -1333,17 +1370,18 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
     :param use_stacor: using station correction input file (on folder input/sta/stacor_"modname".out)
                        or using standart station input (on folder input/station.dat)
     :param itr_set: running in several set mode (output initial set with layer adjustment
-                    became input for next set until minumum RMS) itrmax=max iteration each set
+                    became input for next set until minumum RMS is achieved) itrmax=max iteration each set
     :param damp_test: run damping test velocity model before running velest
-    :param auto_damp: automatic select damping value based on minimum data variance or manually choose after test
+    :param auto_damp: automatic select damping value based on maximum curvature of data and model variance or manually choose value after test
+    :param print_velestout: print the output of Velest process
     """
 
-    uuid = get_machine_uuid()
-    if uuid:
-        if not is_license_valid(uuid):
-            sys.exit("❌ The program cannot run on unauthorized machines.")
-    else:
-        sys.exit("⚠️ Could not retrieve machine information. Please contact the developer.")
+    # uuid = get_machine_uuid()
+    # if uuid:
+    #     if not is_license_valid(uuid):
+    #         sys.exit("❌ The program cannot run on unauthorized machines.")
+    # else:
+    #     sys.exit("⚠️ Could not retrieve machine information. Please contact the developer.")
 
     my_dir = os.getcwd()
     mod_dir = os.path.join('input', 'mod')
@@ -1381,21 +1419,21 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
     if len(inpmod) > 0:
         if itr_set:
             log = f'\n__Velest Set Runner by eQ Halauwet__\n' \
-                  f'\nVelest will run several iteration set for {len(inpmod)} input model:\n'
+                  f'\nVelest will run several iteration set for {len(inpmod)} input model:'
         else:
             log = f'\n__Velest Runner by eQ Halauwet__\n' \
-                  f'\nVelest will run maximum {itrmax} iteration for {len(inpmod)} input model:\n'
+                  f'\nVelest will run maximum {itrmax} iteration for {len(inpmod)} input model'
     else:
         log = f'\n__Velest Runner by eQ Halauwet__\n' \
-              f'\nPlease place your input model in folder "input/mod/" . . .\n'
+              f'\nPlease place your input model in folder "input/mod/" . . .'
         print(log)
         sys.exit(0)
 
     print(log)
     logfile.write(log)
 
-    for m in mod_nm:
-        log = ' * ' + m
+    for i, m in enumerate(mod_nm):
+        log = f'\n {i+1} {m}'
         print(log)
         logfile.write(log)
 
@@ -1415,7 +1453,7 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
         set_outst = []
         set_outmd = []
 
-        log = f'\n\n\n>>> {num + 1}. Input model {md_nm}:\n'
+        log = f'\n {num + 1}. Input model {md_nm}:'
         print(log)
         logfile.write(log)
 
@@ -1425,9 +1463,10 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
 
             iset += 1
             i = iset - 1
+            damp_vt = None
 
             if itr_set:
-                log = f'\n * Iteration set {iset} . . .'
+                log = f'\n  > Iteration set {iset} . . .'
                 print(log)
                 logfile.write(log)
                 
@@ -1471,174 +1510,347 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
 
             # check input file
             if not os.path.exists(set_stafl[i]) or not os.path.exists(set_phafl[i]):
-            
                 print(f'Check required file: station {set_stafl[i]} and phase {set_phafl[i]}')
                 break
 
             eqs_num = CNV_EvtCount(set_phafl[i])
-            
-            if itr_set:
-            
-                damp_ot = 0.01
-                damp_xy = 0.01
-                damp_zt = 0.01
-                damp_vt = 0.1
-                damp_st = 0.01
-                
-            else:
-                
-                damp_ot = 0.01
-                damp_xy = 0.01
-                damp_zt = 0.01
-                damp_vt = 1.0
-                damp_st = 0.10
-                        
-                if damp_test:
-                
-                    model_var, data_var, str_damp = damping_test(model=set_model[i], phase=set_phafl[i],
-                                                                 stacor=set_stafl[i], which_dmp=4, max_damp=500,
-                                                                 num_damp=20, plot=True)
-                    damp2gmt(model_var, data_var, str_damp, 4, md_nm)
-                    
-                    if auto_damp:
-                    
-                        for varmd, vardt, varsr in zip(model_var, data_var, str_damp):
-                            if vardt == min(data_var):
-                                damp_vt = float(varsr)
-                                
-                    else:
-                        
-                        damp_vt = float(input(f'Damping factor velocity model='))
 
-            cmnout = open('velest.cmn', 'w')
+            other_damp_vals = [0.01, 0.05, 0.1, 0.5, 1, 2, 5]
+            # other_damp_vals = [0.01, 0.02] #, 0.05, 0.1, 0.2, 0.5, 1, 1.5]
+            analysis_done = False
 
-            with open(os.path.join('input', 'base.cmn')) as f:
+            for odamp in other_damp_vals:
 
-                hint_eqsnm = '*** neqs   nshot   rotate'
-                hint_damps = '***   othet   xythet    zthet    vthet   stathet'
-                hint_usecr = '*** nsinv   nshcor   nshfix     iuseelev    iusestacorr'
-                hint_stcrt = '*** delmin   ittmax   invertratio'
-                hint_model = '*** Modelfile:'
-                hint_stafl = '*** Stationfile:'
-                hint_phafl = '*** File with Earthquake data:'
-                hint_outmn = '*** Main print output file:'
-                hint_outst = '*** File with new station corrections:'
-                hint_outph = '*** File with final hypocenters in *.cnv format:'
+                damp_ot = odamp
+                damp_xy = odamp
+                damp_zt = odamp
+                damp_st = 10 * odamp
 
-                flag_eqsnm = False
-                flag_usecr = False
-                flag_damps = False
-                flag_stcrt = False
-                flag_model = False
-                flag_stafl = False
-                flag_phafl = False
-                flag_outmn = False
-                flag_outst = False
-                flag_outph = False
+                if itr_set:
+                    if not damp_vt:
+                        if damp_test:
+                            model_vars, data_vars, damp_vals = damping_test(iset, model=set_model[i], phase=set_phafl[i],
+                                                                            stacor=set_stafl[i], which_dmp=4, max_damp=200,
+                                                                            num_damp=15, time_out=time_out, plot=True,
+                                                                            print_velestout=False)
+                            if damp_vals.size != 0:
+                                if auto_damp:
+                                    damp_vt, opt_model_var, opt_data_var = calc_elbow_Lcurve(model_vars, data_vars, damp_vals)
+                                    log = f'\n    Best damping factor velocity model={damp_vt} (model var={opt_model_var:.3f} (km/s)^2, data var={opt_data_var:.3f} (s)^2)'
+                                    print(log)
+                                    logfile.write(log)
+                                else:
+                                    damp_vt = float(input(f'    Choosen damping factor velocity model='))
+                                    opt_model_var = 0
+                                    opt_data_var = 0
+                                    for varmd, vardt, vardm in zip(model_vars, data_vars, damp_vals):
+                                        if vardm == damp_vt:
+                                            opt_model_var = varmd
+                                            opt_data_var = vardt
+                                damp2gmt(model_vars, data_vars, damp_vals, 4, md_nm, opt_model_var, opt_data_var)
+                            else:
+                                damp_vt = 1.0
+                        else:
+                            damp_vt = odamp
 
-                for l in f:
+                else:
+                    if not damp_vt:
+                        if damp_test:
+                            model_vars, data_vars, damp_vals = damping_test(model=set_model[i], phase=set_phafl[i],
+                                                                            stacor=set_stafl[i], which_dmp=4, max_damp=200,
+                                                                            num_damp=15, time_out=time_out, plot=True,
+                                                                            print_velestout=False)
+                            if damp_vals:
+                                if auto_damp:
+                                    damp_vt, opt_model_var, opt_data_var = calc_elbow_Lcurve(model_vars, data_vars, damp_vals)
+                                    log = f'\n    Best damping factor velocity model={damp_vt} (model var={opt_model_var:.3f} (km/s)^2, data var={opt_data_var:.3f} (s)^2)'
+                                    print(log)
+                                    logfile.write(log)
+                                else:
+                                    damp_vt = float(input(f'    Choosen damping factor velocity model='))
+                                    opt_model_var = 0
+                                    opt_data_var = 0
+                                    for varmd, vardt, vardm in zip(model_vars, data_vars, damp_vals):
+                                        if vardm == damp_vt:
+                                            opt_model_var = varmd
+                                            opt_data_var = vardt
+                                damp2gmt(model_vars, data_vars, damp_vals, 4, md_nm, opt_model_var, opt_data_var)
+                            else:
+                                damp_vt = 1.0
+                        else:
+                            damp_vt = odamp
 
-                    if hint_eqsnm in l:
-                        flag_eqsnm = True
-                    if flag_eqsnm and hint_eqsnm not in l:
-                        ln = l.split()
-                        ln[0] = eqs_num
-                        l = f"   {ln[0]:5d}  {int(ln[1]):5d}  {float(ln[2]):7.1f}\n"
-                        flag_eqsnm = False
+                log = f'\n    Use hypocenter damping factor={odamp} and station correction damping factor={damp_st}'
+                print(log)
+                logfile.write(log)
 
-                    if hint_usecr in l:
-                        flag_usecr = True
-                    if flag_usecr and hint_usecr not in l:
-                        ln = l.split()
-                        if iset == 1:
-                            if itr_set:
-                                ln[4] = 0
+                cmnout = open('velest.cmn', 'w')
+
+                with open(os.path.join('input', 'base.cmn')) as f:
+
+                    hint_eqsnm = '*** neqs   nshot   rotate'
+                    hint_damps = '***   othet   xythet    zthet    vthet   stathet'
+                    hint_usecr = '*** nsinv   nshcor   nshfix     iuseelev    iusestacorr'
+                    hint_stcrt = '*** delmin   ittmax   invertratio'
+                    hint_model = '*** Modelfile:'
+                    hint_stafl = '*** Stationfile:'
+                    hint_phafl = '*** File with Earthquake data:'
+                    hint_outmn = '*** Main print output file:'
+                    hint_outst = '*** File with new station corrections:'
+                    hint_outph = '*** File with final hypocenters in *.cnv format:'
+
+                    flag_eqsnm = False
+                    flag_usecr = False
+                    flag_damps = False
+                    flag_stcrt = False
+                    flag_model = False
+                    flag_stafl = False
+                    flag_phafl = False
+                    flag_outmn = False
+                    flag_outst = False
+                    flag_outph = False
+
+                    for l in f:
+
+                        if hint_eqsnm in l:
+                            flag_eqsnm = True
+                        if flag_eqsnm and hint_eqsnm not in l:
+                            ln = l.split()
+                            ln[0] = eqs_num
+                            l = f"   {ln[0]:5d}  {int(ln[1]):5d}  {float(ln[2]):7.1f}\n"
+                            flag_eqsnm = False
+
+                        if hint_usecr in l:
+                            flag_usecr = True
+                        if flag_usecr and hint_usecr not in l:
+                            ln = l.split()
+                            if iset == 1:
+                                if itr_set:
+                                    ln[4] = 0
+                                else:
+                                    ln[4] = 1
                             else:
                                 ln[4] = 1
-                        else:
-                            ln[4] = 1
-                        l = f"       {ln[0]}       {ln[1]}       {ln[2]}           {ln[3]}            {ln[4]}\n"
-                        flag_usecr = False
+                            l = f"       {ln[0]}       {ln[1]}       {ln[2]}           {ln[3]}            {ln[4]}\n"
+                            flag_usecr = False
 
-                    if hint_damps in l:
-                        flag_damps = True
-                    if flag_damps and hint_damps not in l:
-                        l = f"      {damp_ot:5}   {damp_xy:5}     {damp_zt:5}    {damp_vt:5}    {damp_st:5}\n"
-                        flag_damps = False
+                        if hint_damps in l:
+                            flag_damps = True
+                        if flag_damps and hint_damps not in l:
+                            l = f"      {damp_ot:5}   {damp_xy:5}     {damp_zt:5}    {damp_vt:5}    {damp_st:5}\n"
+                            flag_damps = False
 
-                    if hint_stcrt in l:
-                        flag_stcrt = True
-                    if flag_stcrt and hint_stcrt not in l:
-                        l = l.split()
-                        l[1] = itrmax
-                        l[2] = invratio
-                        l = f"    {float(l[0]):.3f}      {l[1]}          {l[2]}\n"
-                        flag_stcrt = False
+                        if hint_stcrt in l:
+                            flag_stcrt = True
+                        if flag_stcrt and hint_stcrt not in l:
+                            l = l.split()
+                            l[1] = itrmax
+                            l[2] = invratio
+                            l = f"    {float(l[0]):.3f}      {l[1]}          {l[2]}\n"
+                            flag_stcrt = False
 
-                    if hint_model in l:
-                        flag_model = True
-                    if flag_model and hint_model not in l:
-                        l = set_model[i] + '\n'
-                        flag_model = False
+                        if hint_model in l:
+                            flag_model = True
+                        if flag_model and hint_model not in l:
+                            l = set_model[i] + '\n'
+                            flag_model = False
 
-                    if hint_stafl in l:
-                        flag_stafl = True
-                    if flag_stafl and hint_stafl not in l:
-                        l = set_stafl[i] + '\n'
-                        flag_stafl = False
+                        if hint_stafl in l:
+                            flag_stafl = True
+                        if flag_stafl and hint_stafl not in l:
+                            l = set_stafl[i] + '\n'
+                            flag_stafl = False
 
-                    if hint_phafl in l:
-                        flag_phafl = True
-                    if flag_phafl and hint_phafl not in l:
-                        l = set_phafl[i] + '\n'
-                        flag_phafl = False
+                        if hint_phafl in l:
+                            flag_phafl = True
+                        if flag_phafl and hint_phafl not in l:
+                            l = set_phafl[i] + '\n'
+                            flag_phafl = False
 
-                    if hint_outmn in l:
-                        flag_outmn = True
-                    if flag_outmn and hint_outmn not in l:
-                        l = set_outmn[i] + '\n'
-                        flag_outmn = False
+                        if hint_outmn in l:
+                            flag_outmn = True
+                        if flag_outmn and hint_outmn not in l:
+                            l = set_outmn[i] + '\n'
+                            flag_outmn = False
 
-                    if hint_outst in l:
-                        flag_outst = True
-                    if flag_outst and hint_outst not in l:
-                        l = set_outst[i] + '\n'
-                        flag_outst = False
+                        if hint_outst in l:
+                            flag_outst = True
+                        if flag_outst and hint_outst not in l:
+                            l = set_outst[i] + '\n'
+                            flag_outst = False
 
-                    if hint_outph in l:
-                        flag_outph = True
-                    if flag_outph and hint_outph not in l:
-                        l = set_outph[i] + '\n'
-                        flag_outph = False
+                        if hint_outph in l:
+                            flag_outph = True
+                        if flag_outph and hint_outph not in l:
+                            l = set_outph[i] + '\n'
+                            flag_outph = False
 
-                    cmnout.write(l)
+                        cmnout.write(l)
 
-            cmnout.close()
+                cmnout.close()
 
-            # Looping layer adjustment by velocity deviation
-            if itr_set:
-                lst_dev = np.linspace(0.05, 0.10, 3)
-            else:
-                lst_dev = [0.05]
+                # Looping layer adjustment by velocity deviation
+                if itr_set:
+                    lst_dev = np.linspace(0.05, 0.10, 3)
+                else:
+                    lst_dev = [0.05]
 
-            for k in range(len(lst_dev)):
+                for k in range(len(lst_dev)):
 
-                dev = lst_dev[k]
-                if iset > 1:
-                    log = ' adjust layer with dev <= %.3f' % dev
+                    dev = lst_dev[k]
+                    if iset > 1:
+                        log = '\n    Adjust layer with dev <= %.3f' % dev
+                        print(log)
+                        logfile.write(log)
+
+                    log = '\n\n    Running Velest Inversion . . .\n\n'
                     print(log)
                     logfile.write(log)
+                    proc = sp.Popen('/home/eq/q_repo/q_velest/velest', stdout=sp.PIPE)
+                    output = None
 
-                proc = sp.Popen('velest', stdout=sp.PIPE)
+                    try:
 
-                try:
+                        output = proc.communicate(timeout=time_out)[0]
+                        if print_velestout:
+                            log = output.decode('unicode_escape')
+                            print(log)
+                            logfile.write(log)
 
-                    output = proc.communicate(timeout=time_out)[0]
+                        if 'error' in str(output):
 
-                    if 'error' in str(output):
-                        
-                        if k == len(lst_dev) - 1 and iset != 1:
-                            # TODO: vel2gmt available result
+                            if iset != 1 and k == len(lst_dev) - 1 and odamp == other_damp_vals[-1]:
+                                # TODO: vel2gmt available result
+                                nllmod_dir = 'outmodel_nlloc'
+                                velmod_dir = 'outmodel_velest'
+
+                                if not os.path.exists(nllmod_dir):
+                                    os.makedirs(nllmod_dir)
+                                if not os.path.exists(velmod_dir):
+                                    os.makedirs(velmod_dir)
+
+                                del set_phafl[-1]
+                                del set_outph[-1]
+                                del set_outmn[-1]
+
+                                velest2gmt(md_nm, set_phafl, set_outph, set_outmn, itrmax, invratio)
+
+                                # READ OPTIMUM VELMOD (ITERATION WITH MIN RMS) FROM ITERATION SET BEFORE ERROR
+                                itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i-1])
+                                vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
+
+                                # SET SIMPLE VELOCITY MODEL THEN WRITE TO NLLOC FORMAT
+                                simple_v, simple_d = simple_model(vel, dep)
+                                vpvs = 1.75
+
+                                if itr_set:
+                                    mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_{md_nm}.dat'), 'w')
+                                else:
+                                    mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_min1D{md_nm}.dat'), 'w')
+                                mod_nlloc.write(
+                                    '# model layers (LAYER depth, Vp_top, Vp_grad, Vs_top, Vs_grad, p_top, p_grad)')
+                                for v, d in zip(simple_v, simple_d):
+                                    l = f'\nLAYER {d:5.1f} {v:5.2f} 0.00   {v/vpvs:5.2f}  0.00  2.7 0.0'
+                                    mod_nlloc.write(l)
+
+                                mod_nlloc.close()
+
+                                # SET SIMPLE VELOCITY MODEL THEN WRITE TO VELEST FORMAT
+                                simple_v, simple_d, simple_dam = simple_model(vel, dep, dam)
+
+                                if itr_set:
+                                    modout = open(os.path.join(velmod_dir, f'outmodelfinal_{md_nm}.mod'), 'w')
+                                else:
+                                    modout = open(os.path.join(velmod_dir, f'outmodelfinal_min1D{md_nm}.mod'), 'w')
+                                modout.write(' Output model:\n')
+                                modout.write(str(len(simple_v)) + '\n')
+
+                                for vl, dp, dm in zip(simple_v, simple_d, simple_dam):
+                                    l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
+                                    modout.write(l)
+
+                                modout.close()
+
+                            if iset == 1:
+                                if  k == 0 and odamp == other_damp_vals[0]:
+                                    log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                                           '\n    >> Next model\n__________________________________________\n')
+                                    print(log)
+                                    logfile.write(log)
+
+                                    shutil.move(mod, os.path.join(my_dir, mod_dir, 'error', md_nm + '.mod'))
+                                    j += 1
+                                    analysis_done = True
+                                    break
+                                else:
+                                    log = (f'\n    Error {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
+                                           f'\n    >> Readjust other vars damping . . .')
+                                    print(log)
+                                    logfile.write(log)
+                                    break
+                            else:
+                                log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                                       '\n\n    >> Readjust layers . . .\n')
+                                print(log)
+                                logfile.write(log)
+
+                                itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i - 1])
+
+                                vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
+
+                                modout = open(set_outmd[i - 1], 'w')
+                                modout.write(' Output model:\n')
+                                modout.write(str(len(vel)) + '\n')
+
+                                for vl, dp, dm in zip(vel, dep, dam):
+                                    l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
+                                    modout.write(l)
+
+                                modout.close()
+
+                                continue
+
+                        log = ('\n    Finished ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                               '\n__________________________________________\n')
+                        print(log)
+                        logfile.write(log)
+
+                        try:
+
+                            itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i])
+
+                        except UnboundLocalError:
+
+                            if iset != 1:
+
+                                itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i-1])
+
+                            else:
+
+                                shutil.move(mod, os.path.join(my_dir, mod_dir, 'error', md_nm + '.mod'))
+                                log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                                       '\n    >> Next model\n__________________________________________\n')
+                                print(log)
+                                logfile.write(log)
+
+                                j += 1
+
+                                break
+
+                        vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
+
+                        modout = open(set_outmd[i], 'w')
+                        modout.write(' Output model:\n')
+                        modout.write(str(len(vel)) + '\n')
+
+                        for vl, dp, dm in zip(vel, dep, dam):
+                            l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
+                            modout.write(l)
+
+                        modout.close()
+
+                        if itr_set and itt < itrmax or itr_set is False or not next_set:
+
                             nllmod_dir = 'outmodel_nlloc'
                             velmod_dir = 'outmodel_velest'
 
@@ -1646,17 +1858,13 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                 os.makedirs(nllmod_dir)
                             if not os.path.exists(velmod_dir):
                                 os.makedirs(velmod_dir)
-                                
-                            del set_phafl[-1]
-                            del set_outph[-1]
-                            del set_outmn[-1]
 
                             velest2gmt(md_nm, set_phafl, set_outph, set_outmn, itrmax, invratio)
 
-                            # READ OPTIMUM VELMOD (ITERATION WITH MIN RMS) FROM ITERATION SET BEFORE ERROR
-                            itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i-1])
+                            # READ OPTIMUM VELMOD (ITERATION WITH MIN RMS) FROM LAST ITERATION SET
+                            itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i])
                             vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
-                            
+
                             # SET SIMPLE VELOCITY MODEL THEN WRITE TO NLLOC FORMAT
                             simple_v, simple_d = simple_model(vel, dep)
                             vpvs = 1.75
@@ -1668,7 +1876,7 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                             mod_nlloc.write(
                                 '# model layers (LAYER depth, Vp_top, Vp_grad, Vs_top, Vs_grad, p_top, p_grad)')
                             for v, d in zip(simple_v, simple_d):
-                                l = f'\nLAYER {d:5.1f} {v:5.2f} 0.00   {v/vpvs:5.2f}  0.00  2.7 0.0'
+                                l = f'\nLAYER {d:5.1f} {v:5.2f} 0.00   {v / vpvs:5.2f}  0.00  2.7 0.0'
                                 mod_nlloc.write(l)
 
                             mod_nlloc.close()
@@ -1688,22 +1896,93 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                 modout.write(l)
 
                             modout.close()
-                        
-                        if iset == 1 or k == len(lst_dev) - 1:
-                        
-                            shutil.move(mod, os.path.join(my_dir, mod_dir, 'error', md_nm + '.mod'))
-                            log = ('\n error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                                   '\n\n >> next model\n_____________________________________\n')
+
+                            j += 1
+
+                        analysis_done = True
+                        break
+
+                    except sp.TimeoutExpired:
+
+                        if print_velestout and output:
+                            log = output.decode('unicode_escape')
                             print(log)
                             logfile.write(log)
-                            
-                            j += 1
-                            
-                            break
+                        proc.terminate()
+
+                        if iset != 1 and k == len(lst_dev) - 1 and odamp == other_damp_vals[-1]:
+                                # TODO: vel2gmt available result
+                                nllmod_dir = 'outmodel_nlloc'
+                                velmod_dir = 'outmodel_velest'
+
+                                if not os.path.exists(nllmod_dir):
+                                    os.makedirs(nllmod_dir)
+                                if not os.path.exists(velmod_dir):
+                                    os.makedirs(velmod_dir)
+
+                                del set_phafl[-1]
+                                del set_outph[-1]
+                                del set_outmn[-1]
+
+                                velest2gmt(md_nm, set_phafl, set_outph, set_outmn, itrmax, invratio)
+
+                                # READ OPTIMUM VELMOD (ITERATION WITH MIN RMS) FROM ITERATION SET BEFORE ERROR
+                                itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i-1])
+                                vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
+
+                                # SET SIMPLE VELOCITY MODEL THEN WRITE TO NLLOC FORMAT
+                                simple_v, simple_d = simple_model(vel, dep)
+                                vpvs = 1.75
+
+                                if itr_set:
+                                    mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_{md_nm}.dat'), 'w')
+                                else:
+                                    mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_min1D{md_nm}.dat'), 'w')
+                                mod_nlloc.write(
+                                    '# model layers (LAYER depth, Vp_top, Vp_grad, Vs_top, Vs_grad, p_top, p_grad)')
+                                for v, d in zip(simple_v, simple_d):
+                                    l = f'\nLAYER {d:5.1f} {v:5.2f} 0.00   {v/vpvs:5.2f}  0.00  2.7 0.0'
+                                    mod_nlloc.write(l)
+
+                                mod_nlloc.close()
+
+                                # SET SIMPLE VELOCITY MODEL THEN WRITE TO VELEST FORMAT
+                                simple_v, simple_d, simple_dam = simple_model(vel, dep, dam)
+
+                                if itr_set:
+                                    modout = open(os.path.join(velmod_dir, f'outmodelfinal_{md_nm}.mod'), 'w')
+                                else:
+                                    modout = open(os.path.join(velmod_dir, f'outmodelfinal_min1D{md_nm}.mod'), 'w')
+                                modout.write(' Output model:\n')
+                                modout.write(str(len(simple_v)) + '\n')
+
+                                for vl, dp, dm in zip(simple_v, simple_d, simple_dam):
+                                    l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
+                                    modout.write(l)
+
+                                modout.close()
+
+                        if iset == 1:
+                            if  k == 0 and odamp == other_damp_vals[0]:
+                                log = (f'\n    Process timeout {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
+                                       f'\n    >> Next model\n__________________________________________\n')
+                                print(log)
+                                logfile.write(log)
+
+                                shutil.move(mod, os.path.join(my_dir, mod_dir, 'unfinish', md_nm + '.mod'))
+                                j += 1
+                                analysis_done = True
+                                break
+                            else:
+                                log = (f'\n    Process timeout {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
+                                       f'\n    >> Readjust other vars damping . . .')
+                                print(log)
+                                logfile.write(log)
+                                break
 
                         else:
-                            log = ('\n error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                                   '\n\n > readjust layer . . .\n')
+                            log = ('\n    Process timeout ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                                   '\n\n    >> Readjust layer . . .')
                             print(log)
                             logfile.write(log)
 
@@ -1720,192 +1999,19 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                 modout.write(l)
 
                             modout.close()
-
                             continue
 
-                    log = ('\n finished ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                           '\n_____________________________________\n')
-                    print(log)
-                    logfile.write(log)
-                    
-                    try:
-                    
-                        itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i])
-                        
-                    except UnboundLocalError:
-                        
-                        if iset != 1:
-                            
-                            itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i-1])
-                        
-                        else:
-                            
-                            shutil.move(mod, os.path.join(my_dir, mod_dir, 'error', md_nm + '.mod'))
-                            log = ('\n error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                                   '\n\n >> next model\n_____________________________________\n')
-                            print(log)
-                            logfile.write(log)
-                            
-                            j += 1
-                            
-                            break
-
-                    vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
-
-                    modout = open(set_outmd[i], 'w')
-                    modout.write(' Output model:\n')
-                    modout.write(str(len(vel)) + '\n')
-
-                    for vl, dp, dm in zip(vel, dep, dam):
-                        l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
-                        modout.write(l)
-
-                    modout.close()
-
-                    if itr_set and itt < itrmax or itr_set is False or not next_set:
-
-                        nllmod_dir = 'outmodel_nlloc'
-                        velmod_dir = 'outmodel_velest'
-
-                        if not os.path.exists(nllmod_dir):
-                            os.makedirs(nllmod_dir)
-                        if not os.path.exists(velmod_dir):
-                            os.makedirs(velmod_dir)
-
-                        velest2gmt(md_nm, set_phafl, set_outph, set_outmn, itrmax, invratio)
-
-                        # READ OPTIMUM VELMOD (ITERATION WITH MIN RMS) FROM LAST ITERATION SET
-                        itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i])
-                        vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
-                        
-                        # SET SIMPLE VELOCITY MODEL THEN WRITE TO NLLOC FORMAT
-                        simple_v, simple_d = simple_model(vel, dep)
-                        vpvs = 1.75
-
-                        if itr_set:
-                            mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_{md_nm}.dat'), 'w')
-                        else:
-                            mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_min1D{md_nm}.dat'), 'w')
-                        mod_nlloc.write(
-                            '# model layers (LAYER depth, Vp_top, Vp_grad, Vs_top, Vs_grad, p_top, p_grad)')
-                        for v, d in zip(simple_v, simple_d):
-                            l = f'\nLAYER {d:5.1f} {v:5.2f} 0.00   {v / vpvs:5.2f}  0.00  2.7 0.0'
-                            mod_nlloc.write(l)
-
-                        mod_nlloc.close()
-
-                        # SET SIMPLE VELOCITY MODEL THEN WRITE TO VELEST FORMAT
-                        simple_v, simple_d, simple_dam = simple_model(vel, dep, dam)
-
-                        if itr_set:
-                            modout = open(os.path.join(velmod_dir, f'outmodelfinal_{md_nm}.mod'), 'w')
-                        else:
-                            modout = open(os.path.join(velmod_dir, f'outmodelfinal_min1D{md_nm}.mod'), 'w')
-                        modout.write(' Output model:\n')
-                        modout.write(str(len(simple_v)) + '\n')
-
-                        for vl, dp, dm in zip(simple_v, simple_d, simple_dam):
-                            l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
-                            modout.write(l)
-
-                        modout.close()
-
-                        j += 1
-
-                    break
-
-                except sp.TimeoutExpired:
-
-                    proc.terminate()
-                    
-                    if k == len(lst_dev) - 1 and iset != 1:
-                            # TODO: vel2gmt available result
-                            nllmod_dir = 'outmodel_nlloc'
-                            velmod_dir = 'outmodel_velest'
-
-                            if not os.path.exists(nllmod_dir):
-                                os.makedirs(nllmod_dir)
-                            if not os.path.exists(velmod_dir):
-                                os.makedirs(velmod_dir)
-                                
-                            del set_phafl[-1]
-                            del set_outph[-1]
-                            del set_outmn[-1]
-
-                            velest2gmt(md_nm, set_phafl, set_outph, set_outmn, itrmax, invratio)
-
-                            # READ OPTIMUM VELMOD (ITERATION WITH MIN RMS) FROM ITERATION SET BEFORE ERROR
-                            itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i-1])
-                            vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
-                            
-                            # SET SIMPLE VELOCITY MODEL THEN WRITE TO NLLOC FORMAT
-                            simple_v, simple_d = simple_model(vel, dep)
-                            vpvs = 1.75
-
-                            if itr_set:
-                                mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_{md_nm}.dat'), 'w')
-                            else:
-                                mod_nlloc = open(os.path.join(nllmod_dir, f'velmod_nlloc_min1D{md_nm}.dat'), 'w')
-                            mod_nlloc.write(
-                                '# model layers (LAYER depth, Vp_top, Vp_grad, Vs_top, Vs_grad, p_top, p_grad)')
-                            for v, d in zip(simple_v, simple_d):
-                                l = f'\nLAYER {d:5.1f} {v:5.2f} 0.00   {v/vpvs:5.2f}  0.00  2.7 0.0'
-                                mod_nlloc.write(l)
-
-                            mod_nlloc.close()
-
-                            # SET SIMPLE VELOCITY MODEL THEN WRITE TO VELEST FORMAT
-                            simple_v, simple_d, simple_dam = simple_model(vel, dep, dam)
-
-                            if itr_set:
-                                modout = open(os.path.join(velmod_dir, f'outmodelfinal_{md_nm}.mod'), 'w')
-                            else:
-                                modout = open(os.path.join(velmod_dir, f'outmodelfinal_min1D{md_nm}.mod'), 'w')
-                            modout.write(' Output model:\n')
-                            modout.write(str(len(simple_v)) + '\n')
-
-                            for vl, dp, dm in zip(simple_v, simple_d, simple_dam):
-                                l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
-                                modout.write(l)
-
-                            modout.close()
-
-                    if iset == 1 or k == len(lst_dev) - 1:
-                        
-                        log = ('\n process timeout ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                               '\n\n >> next model\n_____________________________________\n')
-                        print(log)
-                        logfile.write(log)
-                        shutil.move(mod, os.path.join(my_dir, mod_dir, 'unfinish', md_nm + '.mod'))
-                        
-                        j += 1
-                        
-                        break
-
-                    else:
-                        log = ('\n process timeout ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                               '\n\n > readjust layer . . .\n')
+                    except Exception as e:
+                        log = f"    An error occurred: {e}"
                         print(log)
                         logfile.write(log)
 
-                        itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i - 1])
+                if analysis_done:
+                    break  # Break outer loop
 
-                        vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
-
-                        modout = open(set_outmd[i - 1], 'w')
-                        modout.write(' Output model:\n')
-                        modout.write(str(len(vel)) + '\n')
-
-                        for vl, dp, dm in zip(vel, dep, dam):
-                            l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
-                            modout.write(l)
-
-                        modout.close()
-                        continue
-
-    log = '\n Finished for all model\n_____________________________________\n'
+    log = '\n Finished for all model\n__________________________________________\n'
     print(log)
     logfile.write(log)
     logfile.close()
 
-Run_Velest(itrmax=10, itr_set=True)
+Run_Velest(itrmax=5, time_out=1500, itr_set=True, damp_test=True, auto_damp=True, print_velestout=True)
