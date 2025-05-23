@@ -1771,8 +1771,8 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
 
                                 modout.close()
 
-                            if iset == 1:
-                                if  k == 0 and odamp == other_damp_vals[0]:
+                            if iset == 1 or k == 0:
+                                if  k == 0 and odamp == other_damp_vals[-1]:
                                     log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
                                            '\n    >> Next model\n__________________________________________\n')
                                     print(log)
@@ -1962,8 +1962,8 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
 
                                 modout.close()
 
-                        if iset == 1:
-                            if  k == 0 and odamp == other_damp_vals[0]:
+                        if iset == 1 or k == 0:
+                            if k == 0 and odamp == other_damp_vals[-1]:
                                 log = (f'\n    Process timeout {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
                                        f'\n    >> Next model\n__________________________________________\n')
                                 print(log)
