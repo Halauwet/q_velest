@@ -1771,8 +1771,9 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
 
                                 modout.close()
 
-                            if iset == 1 or k == 0:
-                                if  k == 0 and odamp == other_damp_vals[-1]:
+                            if iset == 1:
+                                # todo add condition when all adjust layer still error, adjust other damp
+                                if odamp == other_damp_vals[-1]:
                                     log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
                                            '\n    >> Next model\n__________________________________________\n')
                                     print(log)
@@ -1784,31 +1785,38 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                     break
                                 else:
                                     log = (f'\n    Error {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
-                                           f'\n    >> Readjust other vars damping . . .')
+                                           f'\n\n    >> Readjust other vars damping . . .')
                                     print(log)
                                     logfile.write(log)
                                     break
                             else:
-                                log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                                       '\n\n    >> Readjust layers . . .\n')
-                                print(log)
-                                logfile.write(log)
+                                #todo add condition when all adjust layer still error, adjust other damp
+                                if k != len(lst_dev) - 1:
+                                    log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                                           '\n\n    >> Readjust layers . . .\n')
+                                    print(log)
+                                    logfile.write(log)
 
-                                itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i - 1])
+                                    itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i - 1])
 
-                                vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
+                                    vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
 
-                                modout = open(set_outmd[i - 1], 'w')
-                                modout.write(' Output model:\n')
-                                modout.write(str(len(vel)) + '\n')
+                                    modout = open(set_outmd[i - 1], 'w')
+                                    modout.write(' Output model:\n')
+                                    modout.write(str(len(vel)) + '\n')
 
-                                for vl, dp, dm in zip(vel, dep, dam):
-                                    l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
-                                    modout.write(l)
+                                    for vl, dp, dm in zip(vel, dep, dam):
+                                        l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
+                                        modout.write(l)
 
-                                modout.close()
-
-                                continue
+                                    modout.close()
+                                    continue
+                                else:
+                                    log = (f'\n    Error {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
+                                           f'\n\n    >> Readjust other vars damping . . .')
+                                    print(log)
+                                    logfile.write(log)
+                                    break
 
                         log = ('\n    Finished ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
                                '\n__________________________________________\n')
@@ -1834,7 +1842,7 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                 logfile.write(log)
 
                                 j += 1
-
+                                analysis_done = True
                                 break
 
                         vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
@@ -1962,8 +1970,9 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
 
                                 modout.close()
 
-                        if iset == 1 or k == 0:
-                            if k == 0 and odamp == other_damp_vals[-1]:
+                        if iset == 1:
+                            # todo add condition when all adjust layer still error, adjust other damp
+                            if odamp == other_damp_vals[-1]:
                                 log = (f'\n    Process timeout {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
                                        f'\n    >> Next model\n__________________________________________\n')
                                 print(log)
@@ -1975,31 +1984,40 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                 break
                             else:
                                 log = (f'\n    Process timeout {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
-                                       f'\n    >> Readjust other vars damping . . .')
+                                       f'\n\n    >> Readjust other vars damping . . .')
                                 print(log)
                                 logfile.write(log)
                                 break
 
                         else:
-                            log = ('\n    Process timeout ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
-                                   '\n\n    >> Readjust layer . . .')
-                            print(log)
-                            logfile.write(log)
+                            #todo add condition when all adjust layer still error, adjust other damp
+                            if k != len(lst_dev) - 1:
+                                log = ('\n    Process timeout ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                                       '\n\n    >> Readjust layer . . .')
+                                print(log)
+                                logfile.write(log)
 
-                            itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i - 1])
+                                itt, vel, dep, dam, next_set = ReadVelestVel(set_outmn[i - 1])
 
-                            vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
+                                vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
 
-                            modout = open(set_outmd[i - 1], 'w')
-                            modout.write(' Output model:\n')
-                            modout.write(str(len(vel)) + '\n')
+                                modout = open(set_outmd[i - 1], 'w')
+                                modout.write(' Output model:\n')
+                                modout.write(str(len(vel)) + '\n')
 
-                            for vl, dp, dm in zip(vel, dep, dam):
-                                l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
-                                modout.write(l)
+                                for vl, dp, dm in zip(vel, dep, dam):
+                                    l = f'{vl:5.2f}     {dp:7.2f}  {dm:7.3f}\n'
+                                    modout.write(l)
 
-                            modout.close()
-                            continue
+                                modout.close()
+                                continue
+                            else:
+
+                                log = (f'\n    Process timeout {str(dt.now().strftime("%d-%b-%Y %H:%M:%S"))}'
+                                       f'\n\n    >> Readjust other vars damping . . .')
+                                print(log)
+                                logfile.write(log)
+                                break
 
                     except Exception as e:
                         log = f"    An error occurred: {e}"
@@ -2014,4 +2032,4 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
     logfile.write(log)
     logfile.close()
 
-Run_Velest(itrmax=5, time_out=1500, itr_set=True, damp_test=True, auto_damp=True, print_velestout=True)
+Run_Velest(itrmax=5, time_out=600, itr_set=True, damp_test=True, auto_damp=True, print_velestout=True)
