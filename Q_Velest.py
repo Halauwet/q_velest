@@ -1782,6 +1782,8 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                     modout.write(l)
 
                                 modout.close()
+
+                                shutil.move(mod, os.path.join(my_dir, mod_dir, 'finish', md_nm + '.mod'))
                                 j += 1
                                 analysis_done = True
                                 break
@@ -1922,6 +1924,7 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
 
                             j += 1
 
+                        shutil.move(mod, os.path.join(my_dir, mod_dir, 'finish', md_nm + '.mod'))
                         analysis_done = True
                         break
 
@@ -1988,6 +1991,8 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                 modout.write(l)
 
                             modout.close()
+
+                            shutil.move(mod, os.path.join(my_dir, mod_dir, 'finish', md_nm + '.mod'))
                             j += 1
                             analysis_done = True
                             break
@@ -2106,6 +2111,8 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                                 modout.write(l)
 
                             modout.close()
+                            shutil.move(mod, os.path.join(my_dir, mod_dir, 'finish', md_nm + '.mod'))
+
                         j += 1
                         analysis_done = True
                         break
