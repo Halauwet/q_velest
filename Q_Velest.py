@@ -1954,11 +1954,22 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                             del set_outph[-1]
                             del set_outmn[-1]
 
-                            velest2gmt(md_nm, set_phafl, set_outph, set_outmn, itrmax, invratio)
-
                             # READ OPTIMUM VELMOD (ITERATION WITH MIN RMS) FROM ITERATION SET BEFORE ERROR
-                            itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i-1])
+                            try:
+                                itt, vel, dep, dam = ReadVelestOptmVel(set_outmn[i-1])
+                            except UnboundLocalError:
+                                shutil.move(mod, os.path.join(my_dir, mod_dir, 'error', md_nm + '.mod'))
+                                log = ('\n    Error ' + str(dt.now().strftime("%d-%b-%Y %H:%M:%S")) +
+                                       '\n    >> Next model\n__________________________________________\n')
+                                print(log)
+                                logfile.write(log)
+
+                                j += 1
+                                analysis_done = True
+                                break
                             vel, dep = adjust_layer(vel, dep, step=2, dev=dev, plot=False, flag_v=False)
+
+                            velest2gmt(md_nm, set_phafl, set_outph, set_outmn, itrmax, invratio)
 
                             # SET SIMPLE VELOCITY MODEL THEN WRITE TO NLLOC FORMAT
                             simple_v, simple_d = simple_model(vel, dep)
