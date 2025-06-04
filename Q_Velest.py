@@ -1923,8 +1923,8 @@ def Run_Velest(itrmax=5, invratio=1, time_out=120, use_stacor=False, itr_set=Fal
                             modout.close()
 
                             j += 1
+                            shutil.move(mod, os.path.join(my_dir, mod_dir, 'finish', md_nm + '.mod'))
 
-                        shutil.move(mod, os.path.join(my_dir, mod_dir, 'finish', md_nm + '.mod'))
                         analysis_done = True
                         break
 
